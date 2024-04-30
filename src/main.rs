@@ -1,8 +1,8 @@
 use std::ffi::OsStr;
 use std::io;
 
+use ddc_hi::{Ddc, Display};
 use futures::StreamExt;
-use tokio::process;
 use tokio_udev::{AsyncMonitorSocket, MonitorBuilder};
 
 #[tokio::main(flavor = "current_thread")]
@@ -12,17 +12,17 @@ async fn main() -> io::Result<()> {
         .listen()?
         .try_into()?;
 
-    let mut old_value: u64 = 0;
+    let mut old_value: u16 = 0;
     while let Some(event) = monitor.next().await {
         let event = event?;
-        let Some(brightness): Option<u64> = event
+        let Some(brightness): Option<u16> = event
             .attribute_value("brightness")
             .and_then(OsStr::to_str)
             .and_then(|s| s.parse().ok())
         else {
             continue;
         };
-        let Some(max_brightness): Option<u64> = event
+        let Some(max_brightness): Option<u16> = event
             .attribute_value("max_brightness")
             .and_then(OsStr::to_str)
             .and_then(|s| s.parse().ok())
@@ -35,14 +35,8 @@ async fn main() -> io::Result<()> {
         }
         old_value = target;
 
-        let status = process::Command::new("ddcutil")
-            .arg("setvcp")
-            .arg("10")
-            .arg(format!("{target}"))
-            .status()
-            .await?;
-        if !status.success() {
-            eprintln!("failed to change monitor brightness: {status}")
+        for mut display in Display::enumerate() {
+            display.handle.set_vcp_feature(0x10, target).unwrap();
         }
     }
 
