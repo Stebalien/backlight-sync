@@ -3,7 +3,7 @@ use std::io;
 use std::str::FromStr;
 
 use ddc_hi::{Ddc, Display};
-use futures::{StreamExt, TryStreamExt};
+use futures::TryStreamExt;
 use tokio_udev::{AsyncMonitorSocket, Event, MonitorBuilder};
 
 fn get_attribute<T: FromStr>(event: &Event, attr: &str) -> Option<T> {
