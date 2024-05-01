@@ -3,7 +3,7 @@ use std::io;
 use std::str::FromStr;
 
 use ddc_hi::{Ddc, Display};
-use futures::TryStreamExt;
+use futures::stream::StreamExt;
 use tokio_udev::{AsyncMonitorSocket, Event, MonitorBuilder};
 
 fn get_attribute<T: FromStr>(event: &Event, attr: &str) -> Option<T> {
@@ -22,20 +22,35 @@ fn get_brightness(event: &Event) -> Option<u16> {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
     let mut brightness: u16 = 0;
-    AsyncMonitorSocket::try_from(
+    let mut monitor = AsyncMonitorSocket::try_from(
         MonitorBuilder::new()?
             .match_subsystem("backlight")?
+            .match_subsystem("drm")?
             .listen()?,
-    )?
-    .try_filter_map(|event| async move { Ok(get_brightness(&event)) })
-    .try_for_each(|new_brightness| async move {
-        if new_brightness != brightness {
-            brightness = new_brightness;
-            for mut display in Display::enumerate() {
-                display.handle.set_vcp_feature(0x10, brightness).unwrap();
+    )?;
+    while let Some(event) = monitor.next().await {
+        let event = event?;
+        match event.device().subsystem().and_then(OsStr::to_str) {
+            Some("drm") => {} // refresh
+            Some("backlight") => {
+                let Some(new_brightness) = get_brightness(&event) else {
+                    continue;
+                };
+                if new_brightness == brightness {
+                    continue;
+                }
+                brightness = new_brightness;
             }
+            _ => continue,
         }
-        Ok(())
-    })
-    .await
+        'retry: for _ in 0..3 {
+            for mut display in Display::enumerate() {
+                if display.handle.set_vcp_feature(0x10, brightness).is_err() {
+                    continue 'retry;
+                };
+            }
+            break;
+        }
+    }
+    Ok(())
 }
