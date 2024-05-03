@@ -1,0 +1,17 @@
+[Unit]
+Description=Synchronize external monitor backlights with the default laptop backlight
+Wants=modprobe@i2c-dev.service
+After=modprobe@i2c-dev.service
+
+[Service]
+DynamicUser=true
+SupplementaryGroups=i2c
+PrivateNetwork=true
+DevicePolicy=closed
+DeviceAllow=char-i2c
+ProtectHome=yes
+KeyringMode=private
+ExecStart=/usr/lib/backlight-syncd
+
+[Install]
+WantedBy=graphical.target
