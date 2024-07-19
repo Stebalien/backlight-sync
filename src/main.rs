@@ -60,7 +60,7 @@ async fn main() -> io::Result<()> {
             .listen()?,
     )?;
 
-    let mut update_task = None;
+    let mut update_task = Some(update_brightness(brightness));
     loop {
         let Some(event) = if let Some(task) = update_task.take() {
             tokio::select! {
