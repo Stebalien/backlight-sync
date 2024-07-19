@@ -10,5 +10,5 @@ ddc-hi = "0.4.1"
 env_logger = "0.11.3"
 futures = "0.3.30"
 log = "0.4.21"
-tokio = { version = "1.37.0", features = ["rt", "macros", "process"]}
+tokio = { version = "1.37.0", default-features = false, features = ["rt", "macros", "process", "time"] }
 tokio-udev = "0.9.1"
