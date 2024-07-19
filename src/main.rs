@@ -33,8 +33,8 @@ fn get_initial_brightness() -> io::Result<Option<u16>> {
 }
 
 async fn update_brightness(brightness: u16) {
-    time::sleep(UPDATE_DELAY).await;
     'retry: for _ in 0..3 {
+        time::sleep(UPDATE_DELAY).await;
         for mut display in Display::enumerate() {
             if let Err(e) = display.handle.set_vcp_feature(0x10, brightness) {
                 log::warn!(
