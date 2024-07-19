@@ -60,6 +60,7 @@ async fn main() -> io::Result<()> {
                     continue 'retry;
                 };
             }
+            break;
         }
     }
     Ok(())
