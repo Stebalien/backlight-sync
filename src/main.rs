@@ -4,25 +4,34 @@ use std::str::FromStr;
 
 use ddc_hi::{Ddc, Display};
 use futures::stream::StreamExt;
-use tokio_udev::{AsyncMonitorSocket, Event, MonitorBuilder};
+use tokio_udev::{AsyncMonitorSocket, Device, Enumerator, MonitorBuilder};
 
-fn get_attribute<T: FromStr>(event: &Event, attr: &str) -> Option<T> {
-    event
-        .attribute_value(attr)
+fn get_attribute<T: FromStr>(dev: &Device, attr: &str) -> Option<T> {
+    dev.attribute_value(attr)
         .and_then(OsStr::to_str)
         .and_then(|s| s.parse().ok())
 }
 
-fn get_brightness(event: &Event) -> Option<u16> {
-    let brightness: u16 = get_attribute(event, "brightness")?;
-    let max_brightness: u16 = get_attribute(event, "max_brightness")?;
+fn get_brightness(dev: &Device) -> Option<u16> {
+    let brightness: u16 = get_attribute(dev, "brightness")?;
+    let max_brightness: u16 = get_attribute(dev, "max_brightness")?;
     Some(brightness * 100 / max_brightness)
+}
+
+fn get_initial_brightness() -> io::Result<Option<u16>> {
+    let mut enumerator = Enumerator::new()?;
+    enumerator.match_is_initialized()?;
+    enumerator.match_subsystem("backlight")?;
+    Ok(enumerator
+        .scan_devices()?
+        .filter_map(|d| get_brightness(&d))
+        .next())
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
     env_logger::init();
-    let mut brightness: u16 = 0;
+    let mut brightness: u16 = get_initial_brightness()?.unwrap_or(255);
     let mut monitor = AsyncMonitorSocket::try_from(
         MonitorBuilder::new()?
             .match_subsystem("backlight")?
