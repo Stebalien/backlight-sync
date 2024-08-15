@@ -28,7 +28,7 @@ DevicePolicy=closed
 DeviceAllow=char-i2c
 ProtectHome=yes
 KeyringMode=private
-ExecStart=/usr/lib/backlight-syncd
+ExecStart=LIBEXECDIR/backlight-syncd
 
 [Install]
 WantedBy=graphical.target
