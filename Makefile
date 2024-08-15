@@ -1,6 +1,7 @@
 CARGO_TARGET_DIR ?= target
 PREFIX           ?= /usr/local
-LIBEXECDIR       ?= $(PREFIX)/lib
+LIBDIR           ?= $(PREFIX)/lib
+LIBEXECDIR       ?= $(LIBDIR)
 
 export CARGO_TARGET_DIR
 
@@ -18,7 +19,7 @@ $(BIN): .
 		$< > $@
 install:
 	install -Dm755 $(CARGO_TARGET_DIR)/release/backlight-sync $(DESTDIR)$(LIBEXECDIR)/backlight-syncd
-	install -Dm644 backlight-syncd.service /usr/lib/systemd/system/backlight-syncd.service
+	install -Dm644 backlight-syncd.service $(DESTDIR)$(LIBEXECDIR)/systemd/system/backlight-syncd.service
 
 clean:
 	rm -fr $(CARGO_TARGET_DIR)
