@@ -51,7 +51,8 @@ async fn update_brightness(brightness: u16) {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> io::Result<()> {
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
     let mut brightness: u16 = get_initial_brightness()?.unwrap_or(255);
     let mut monitor = AsyncMonitorSocket::try_from(
         MonitorBuilder::new()?
