@@ -7,7 +7,7 @@ export CARGO_TARGET_DIR
 
 BIN = $(CARGO_TARGET_DIR)/release/backlight-sync
 
-build: $(BIN) backlight-syncd.service
+build: $(BIN) contrib/backlight-syncd.service
 
 $(BIN): .
 	cargo build --release
@@ -17,13 +17,17 @@ $(BIN): .
 		-DLIBEXECDIR="$(LIBEXECDIR)" \
 		-DPREFIX="$(PREFIX)" \
 		$< > $@
-install:
+install: contrib/backlight-syncd.service
 	install -Dm755 $(CARGO_TARGET_DIR)/release/backlight-sync $(DESTDIR)$(LIBEXECDIR)/backlight-syncd
-	install -Dm644 backlight-syncd.service $(DESTDIR)$(LIBEXECDIR)/systemd/system/backlight-syncd.service
+	install -Dm644 contrib/backlight-syncd.service $(DESTDIR)$(LIBDIR)/systemd/system/backlight-syncd.service
+
+install-udev-rules:
+	install -Dm644 contrib/i2c.sysusers.conf $(DESTDIR)$(LIBDIR)/sysusers.d/i2c.conf
+	install -Dm644 contrib/i2c.udev.rules $(DESTDIR)$(LIBDIR)/udev/rules.d/50-i2c.rules
 
 clean:
 	rm -fr $(CARGO_TARGET_DIR)
-	rm backlight-syncd.service
+	rm contrib/backlight-syncd.service
 
 
 .PHONY: build install
