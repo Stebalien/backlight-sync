@@ -2,6 +2,7 @@
 Description=Synchronize external monitor backlights with the default laptop backlight
 Wants=modprobe@i2c-dev.service
 After=modprobe@i2c-dev.service
+After=graphical.target
 
 [Service]
 DynamicUser=true
