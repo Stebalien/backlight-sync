@@ -96,6 +96,7 @@ dependencies = [
  "env_logger",
  "futures",
  "log",
+ "mccs-db",
  "tokio",
  "tokio-udev",
 ]
