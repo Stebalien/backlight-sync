@@ -1,10 +1,13 @@
 use std::ffi::OsStr;
+use std::future::IntoFuture;
 use std::io;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use ddc_hi::{Ddc, Display};
 use futures::stream::StreamExt;
+use tokio::task::JoinError;
 use tokio::time;
 use tokio_udev::{AsyncMonitorSocket, Device, Enumerator, MonitorBuilder};
 
@@ -32,28 +35,46 @@ fn get_initial_brightness() -> io::Result<Option<u16>> {
         .next())
 }
 
-async fn update_brightness(brightness: u16) {
-    'retry: for _ in 0..3 {
-        time::sleep(UPDATE_DELAY).await;
-        for mut display in Display::enumerate() {
-            if let Err(e) = display.handle.set_vcp_feature(0x10, brightness) {
-                log::warn!(
-                    "failed to set brightness for display {}: {}",
-                    display.info,
-                    e
-                );
-                continue 'retry;
-            };
-        }
-        break;
+async fn update_brightness(displays: Vec<Arc<Mutex<Display>>>, brightness: u16) {
+    time::sleep(UPDATE_DELAY).await;
+    let mut js = tokio::task::JoinSet::new();
+    for display in displays {
+        js.spawn_blocking(move || {
+            let mut display = display.lock().unwrap();
+            for _ in 0..3 {
+                if let Err(e) = display.handle.set_vcp_feature(0x10, brightness) {
+                    log::warn!(
+                        "failed to set brightness for display {}: {}",
+                        display.info,
+                        e
+                    );
+                } else {
+                    break;
+                }
+            }
+        });
     }
+    let _ = js.join_all().await;
 }
 
-#[tokio::main(flavor = "current_thread")]
+async fn enumerate() -> Result<Vec<Arc<Mutex<Display>>>, JoinError> {
+    tokio::task::spawn_blocking(|| {
+        Display::enumerate()
+            .into_iter()
+            .map(|d| Arc::new(Mutex::new(d)))
+            .collect()
+    })
+    .into_future()
+    .await
+}
+
+#[tokio::main]
 async fn main() -> io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let mut brightness: u16 = get_initial_brightness()?.unwrap_or(255);
+    let mut displays = enumerate().await?;
+
     let mut monitor = AsyncMonitorSocket::try_from(
         MonitorBuilder::new()?
             .match_subsystem("backlight")?
@@ -61,7 +82,7 @@ async fn main() -> io::Result<()> {
             .listen()?,
     )?;
 
-    let mut update_task = Some(update_brightness(brightness));
+    let mut update_task = Some(update_brightness(displays.clone(), brightness));
     loop {
         let Some(event) = if let Some(task) = update_task.take() {
             tokio::select! {
@@ -82,6 +103,7 @@ async fn main() -> io::Result<()> {
             Some("drm") => {
                 // refresh
                 log::info!("drm change, updating backlight");
+                displays = enumerate().await?;
             }
             Some("backlight") => {
                 log::debug!("got backlight change event: {event:?}");
@@ -96,6 +118,6 @@ async fn main() -> io::Result<()> {
             }
             _ => continue,
         }
-        update_task = Some(update_brightness(brightness));
+        update_task = Some(update_brightness(displays.clone(), brightness));
     }
 }
