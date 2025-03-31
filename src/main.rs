@@ -3,15 +3,11 @@ use std::future::IntoFuture;
 use std::io;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use ddc_hi::{Ddc, Display};
 use futures::stream::StreamExt;
 use tokio::task::JoinError;
-use tokio::time;
 use tokio_udev::{AsyncMonitorSocket, Device, Enumerator, MonitorBuilder};
-
-const UPDATE_DELAY: Duration = Duration::from_secs(1);
 
 fn get_attribute<T: FromStr>(dev: &Device, attr: &str) -> Option<T> {
     dev.attribute_value(attr)
@@ -36,7 +32,6 @@ fn get_initial_brightness() -> io::Result<Option<u16>> {
 }
 
 async fn update_brightness(displays: Vec<Arc<Mutex<Display>>>, brightness: u16) {
-    time::sleep(UPDATE_DELAY).await;
     let mut js = tokio::task::JoinSet::new();
     for display in displays {
         js.spawn_blocking(move || {
@@ -72,9 +67,7 @@ async fn enumerate() -> Result<Vec<Arc<Mutex<Display>>>, JoinError> {
 async fn main() -> io::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let mut brightness: u16 = get_initial_brightness()?.unwrap_or(255);
     let mut displays = enumerate().await?;
-
     let mut monitor = AsyncMonitorSocket::try_from(
         MonitorBuilder::new()?
             .match_subsystem("backlight")?
@@ -82,23 +75,10 @@ async fn main() -> io::Result<()> {
             .listen()?,
     )?;
 
-    let mut update_task = Some(update_brightness(displays.clone(), brightness));
-    loop {
-        let Some(event) = if let Some(task) = update_task.take() {
-            tokio::select! {
-                event = monitor.next() => event,
-                _ = task => {
-                    monitor.next().await
-                }
-            }
-        } else {
-            monitor.next().await
-        }
-        .transpose()?
-        else {
-            return Ok(());
-        };
-
+    let mut brightness: u16 = get_initial_brightness()?.unwrap_or(255);
+    update_brightness(displays.clone(), brightness).await;
+    while let Some(event) = monitor.next().await {
+        let event = event?;
         match event.device().subsystem().and_then(OsStr::to_str) {
             Some("drm") => {
                 // refresh
@@ -115,9 +95,10 @@ async fn main() -> io::Result<()> {
                 }
                 log::info!("changing backlight from {brightness} to {new_brightness}");
                 brightness = new_brightness;
+                update_brightness(displays.clone(), brightness).await;
             }
-            _ => continue,
+            _ => {}
         }
-        update_task = Some(update_brightness(displays.clone(), brightness));
     }
+    Ok(())
 }
