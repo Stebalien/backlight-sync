@@ -21,9 +21,12 @@ fn get_attribute<T: FromStr>(dev: &Device, attr: &str) -> Option<T> {
 }
 
 fn get_brightness(dev: &Device) -> Option<u16> {
-    let brightness: u16 = get_attribute(dev, "brightness")?;
-    let max_brightness: u16 = get_attribute(dev, "max_brightness")?;
-    Some(brightness * 100 / max_brightness)
+    let brightness: u64 = get_attribute(dev, "brightness")?;
+    let max_brightness: u64 = get_attribute(dev, "max_brightness")?;
+    Some(
+        (brightness.saturating_mul(u16::MAX.into()) / max_brightness).clamp(0, u16::MAX.into())
+            as u16,
+    )
 }
 
 fn get_initial_brightness() -> io::Result<Option<u16>> {
@@ -38,6 +41,7 @@ fn get_initial_brightness() -> io::Result<Option<u16>> {
 
 async fn update_brightness(displays: &[Arc<Mutex<Display>>], brightness: u16) -> bool {
     let mut js = tokio::task::JoinSet::new();
+    let brightness = (((brightness as u32) * 100) / u16::MAX as u32) as u16;
     #[allow(clippy::unnecessary_to_owned)] // clippy is drunk here.
     for display in displays.iter().cloned() {
         js.spawn_blocking(move || {
@@ -104,7 +108,7 @@ async fn main() -> io::Result<()> {
             .listen()?,
     )?;
 
-    let mut brightness: u16 = get_initial_brightness()?.unwrap_or(255);
+    let mut brightness: u16 = get_initial_brightness()?.unwrap_or(u16::MAX);
     update_brightness(&displays, brightness).await;
     while let Some(event) = monitor.next().await {
         let event = event?;
