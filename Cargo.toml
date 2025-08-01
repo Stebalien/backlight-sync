@@ -8,6 +8,7 @@ license = "GPL-3.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0.98"
 ddc = "0.2.2"
 ddc-i2c = { version = "0.2.2", features = ["with-linux"] }
 env_logger = "0.11.7"

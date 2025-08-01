@@ -1,10 +1,10 @@
 use std::ffi::OsStr;
 use std::future::IntoFuture;
-use std::io;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use anyhow::{anyhow, bail};
 use ddc::Ddc;
 use ddc_i2c::{from_i2c_device, I2cDeviceDdc};
 use futures::stream::StreamExt;
@@ -29,7 +29,7 @@ fn get_brightness(dev: &Device) -> Option<u16> {
     )
 }
 
-fn get_initial_brightness() -> io::Result<Option<u16>> {
+fn get_initial_brightness() -> anyhow::Result<Option<u16>> {
     let mut enumerator = Enumerator::new()?;
     enumerator.match_is_initialized()?;
     enumerator.match_subsystem("backlight")?;
@@ -58,67 +58,103 @@ async fn update_brightness(displays: &[Arc<Mutex<I2cDeviceDdc>>], brightness: u1
     js.join_all().await.into_iter().all(|b| b)
 }
 
-async fn enumerate() -> io::Result<Vec<Arc<Mutex<I2cDeviceDdc>>>> {
+fn has_backlight(d: &Device) -> anyhow::Result<bool> {
+    let mut enumerator = Enumerator::new()?;
+    enumerator.match_is_initialized()?;
+    enumerator.match_parent(d)?;
+    enumerator.match_subsystem("backlight")?;
+    Ok(enumerator.scan_devices()?.next().is_some())
+}
+
+fn connected_displays() -> anyhow::Result<Enumerator> {
+    let mut enumerator = Enumerator::new()?;
+    enumerator.match_is_initialized()?;
+    enumerator.match_subsystem("drm")?;
+    enumerator.match_attribute("status", "connected")?;
+    enumerator.match_attribute("enabled", "enabled")?;
+    Ok(enumerator)
+}
+
+fn i2c_device(parent: &Device) -> anyhow::Result<Option<I2cDeviceDdc>> {
+    let mut enumerator = Enumerator::new()?;
+    enumerator.match_is_initialized()?;
+    enumerator.match_parent(parent)?;
+    enumerator.match_subsystem("i2c-dev")?;
+    for d in enumerator.scan_devices()? {
+        if let Some(dev) = d.property_value("DEVNAME") {
+            return Ok(Some(from_i2c_device(dev)?));
+        };
+    }
+    Ok(None)
+}
+
+fn get_capabilities(i2c_device: &mut I2cDeviceDdc) -> anyhow::Result<mccs_db::Database> {
+    let caps = match i2c_device.capabilities_string() {
+        Ok(caps) => caps,
+        Err(e) => {
+            bail!("failed to read capabilities: {e}");
+        }
+    };
+    let caps = match mccs_caps::parse_capabilities(caps) {
+        Ok(caps) => caps,
+        Err(e) => {
+            bail!("failed to parse capabilities: {e}");
+        }
+    };
+
+    let Some(mccs_version) = caps.mccs_version else {
+        return Ok(Default::default());
+    };
+
+    let mut db = mccs_db::Database::from_version(&mccs_version);
+    db.apply_capabilities(&caps);
+    Ok(db)
+}
+
+async fn enumerate() -> anyhow::Result<Vec<Arc<Mutex<I2cDeviceDdc>>>> {
     tokio::task::spawn_blocking(|| {
         let mut output = Vec::new();
-        let mut enumerator = Enumerator::new()?;
-        enumerator.match_is_initialized()?;
-        enumerator.match_subsystem("drm")?;
-        enumerator.match_attribute("status", "connected")?;
-        enumerator.match_attribute("enabled", "enabled")?;
-        for d in enumerator.scan_devices()? {
-            let sysname = d.sysname();
-            let mut ddc_enum = Enumerator::new()?;
-            ddc_enum.match_parent(&d)?;
-            ddc_enum.match_subsystem("i2c-dev")?;
-            for d in ddc_enum.scan_devices()? {
-                let Some(dev) = d.property_value("DEVNAME") else {
-                    continue;
-                };
-                let mut i2cdev = from_i2c_device(dev)?;
-                let caps = match i2cdev.capabilities_string() {
-                    Ok(caps) => caps,
-                    Err(e) => {
-                        log::warn!("failed to read {sysname:?} capabilities: {e}");
-                        continue;
-                    }
-                };
-                let caps = match mccs_caps::parse_capabilities(caps) {
-                    Ok(caps) => caps,
-                    Err(e) => {
-                        log::warn!("failed to parse {sysname:?} capabilities: {e}");
-                        continue;
-                    }
-                };
-                let Some(mccs_version) = caps.mccs_version else {
-                    continue;
-                };
-
-                let mut db = mccs_db::Database::from_version(&mccs_version);
-                db.apply_capabilities(&caps);
-
-                match db.get(VCP_SET_BRIGHTNESS) {
-                    Some(v) => match v.access {
-                        Access::WriteOnly | Access::ReadWrite => {}
-                        Access::ReadOnly => {
-                            log::debug!("skipping display {sysname:?}, cannot update brightness");
-                            continue;
-                        }
-                    },
-                    None => continue,
-                }
-                output.push(Arc::new(Mutex::new(i2cdev)));
+        for d in connected_displays()?.scan_devices()? {
+            // Check if this is our primary backlight device. If so, skip it.
+            if has_backlight(&d)? {
+                continue;
             }
+
+            // Get the associated i2c device, if any.
+            let Some(mut i2cdev) = i2c_device(&d)? else {
+                continue;
+            };
+
+            let sysname = d.sysname();
+            let caps = match get_capabilities(&mut i2cdev) {
+                Ok(caps) => caps,
+                Err(e) => {
+                    log::warn!("failed to get capabilities for {sysname:?}: {e}");
+                    continue;
+                }
+            };
+
+            match caps.get(VCP_SET_BRIGHTNESS) {
+                Some(v) => match v.access {
+                    Access::WriteOnly | Access::ReadWrite => {}
+                    Access::ReadOnly => {
+                        log::debug!("skipping display {sysname:?}, cannot update brightness");
+                        continue;
+                    }
+                },
+                None => continue,
+            }
+            output.push(Arc::new(Mutex::new(i2cdev)));
         }
         Ok(output)
     })
     .into_future()
     .await
-    .unwrap_or_else(|e| Err(io::Error::other(e)))
+    .unwrap_or_else(|e| Err(anyhow!(e)))
 }
 
 #[tokio::main]
-async fn main() -> io::Result<()> {
+async fn main() -> anyhow::Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let mut displays = enumerate().await?;
