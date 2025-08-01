@@ -10,7 +10,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::{anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use ddc::Ddc;
 use ddc_i2c::{from_i2c_device, I2cDeviceDdc};
 use futures::stream::StreamExt;
@@ -108,24 +108,16 @@ fn i2c_device(parent: &Device) -> anyhow::Result<Option<I2cDeviceDdc>> {
 
 /// Retrieves MCCS capabilities from an I2C device
 fn get_capabilities(i2c_device: &mut I2cDeviceDdc) -> anyhow::Result<mccs_db::Database> {
-    let caps = match i2c_device.capabilities_string() {
-        Ok(caps) => caps,
-        Err(e) => {
-            bail!("failed to read capabilities: {e}");
-        }
-    };
-    let caps = match mccs_caps::parse_capabilities(caps) {
-        Ok(caps) => caps,
-        Err(e) => {
-            bail!("failed to parse capabilities: {e}");
-        }
-    };
+    let caps = i2c_device
+        .capabilities_string()
+        .context("failed to read capabilities")?;
+    let caps = mccs_caps::parse_capabilities(caps).context("failed to parse capabilities")?;
 
-    let Some(mccs_version) = caps.mccs_version else {
-        return Ok(Default::default());
-    };
-
-    let mut db = mccs_db::Database::from_version(&mccs_version);
+    let mut db = caps
+        .mccs_version
+        .as_ref()
+        .map(mccs_db::Database::from_version)
+        .unwrap_or_default();
     db.apply_capabilities(&caps);
     Ok(db)
 }
