@@ -137,7 +137,7 @@ async fn main() -> io::Result<()> {
             Some("drm") => {
                 // refresh
                 log::info!("drm change, updating backlight");
-                // I wait a second here to avoid...
+                // I wait a second here to avoid some race conditions when connecting.
                 tokio::time::sleep(MONITOR_CHANGE_DELAY).await;
                 displays = enumerate().await?;
             }
