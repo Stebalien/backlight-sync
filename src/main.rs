@@ -5,10 +5,10 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use ddc_hi::{Ddc, Display};
+use ddc::Ddc;
+use ddc_i2c::{from_i2c_device, I2cDeviceDdc};
 use futures::stream::StreamExt;
 use mccs_db::Access;
-use tokio::task::JoinError;
 use tokio_udev::{AsyncMonitorSocket, Device, Enumerator, MonitorBuilder};
 
 const MONITOR_CHANGE_DELAY: Duration = Duration::from_secs(5);
@@ -39,7 +39,7 @@ fn get_initial_brightness() -> io::Result<Option<u16>> {
         .next())
 }
 
-async fn update_brightness(displays: &[Arc<Mutex<Display>>], brightness: u16) -> bool {
+async fn update_brightness(displays: &[Arc<Mutex<I2cDeviceDdc>>], brightness: u16) -> bool {
     let mut js = tokio::task::JoinSet::new();
     let brightness = (((brightness as u32) * 100) / u16::MAX as u32) as u16;
     #[allow(clippy::unnecessary_to_owned)] // clippy is drunk here.
@@ -47,13 +47,9 @@ async fn update_brightness(displays: &[Arc<Mutex<Display>>], brightness: u16) ->
         js.spawn_blocking(move || {
             let mut display = display.lock().unwrap();
             for _ in 0..3 {
-                match display.handle.set_vcp_feature(0x10, brightness) {
+                match display.set_vcp_feature(0x10, brightness) {
                     Ok(_) => return true,
-                    Err(e) => log::warn!(
-                        "failed to set brightness for display {}: {}",
-                        display.info,
-                        e
-                    ),
+                    Err(e) => log::warn!("failed to set brightness for display: {e}"),
                 }
             }
             false
@@ -62,38 +58,63 @@ async fn update_brightness(displays: &[Arc<Mutex<Display>>], brightness: u16) ->
     js.join_all().await.into_iter().all(|b| b)
 }
 
-async fn enumerate() -> Result<Vec<Arc<Mutex<Display>>>, JoinError> {
+async fn enumerate() -> io::Result<Vec<Arc<Mutex<I2cDeviceDdc>>>> {
     tokio::task::spawn_blocking(|| {
-        let displays = Display::enumerate();
-        let mut output = Vec::with_capacity(displays.len());
-        for mut display in displays {
-            if let Err(e) = display.update_capabilities() {
-                log::error!(
-                    "failed to update display capabilities for {}, skipping display: {}",
-                    display.info,
-                    e
-                );
-                continue;
-            }
-            match display.info.mccs_database.get(VCP_SET_BRIGHTNESS) {
-                Some(v) => match v.access {
-                    Access::WriteOnly | Access::ReadWrite => {}
-                    Access::ReadOnly => {
-                        log::debug!(
-                            "skipping display {}, cannot update brightness",
-                            display.info
-                        );
+        let mut output = Vec::new();
+        let mut enumerator = Enumerator::new()?;
+        enumerator.match_is_initialized()?;
+        enumerator.match_subsystem("drm")?;
+        enumerator.match_attribute("status", "connected")?;
+        enumerator.match_attribute("enabled", "enabled")?;
+        for d in enumerator.scan_devices()? {
+            let sysname = d.sysname();
+            let mut ddc_enum = Enumerator::new()?;
+            ddc_enum.match_parent(&d)?;
+            ddc_enum.match_subsystem("i2c-dev")?;
+            for d in ddc_enum.scan_devices()? {
+                let Some(dev) = d.property_value("DEVNAME") else {
+                    continue;
+                };
+                let mut i2cdev = from_i2c_device(dev)?;
+                let caps = match i2cdev.capabilities_string() {
+                    Ok(caps) => caps,
+                    Err(e) => {
+                        log::warn!("failed to read {sysname:?} capabilities: {e}");
                         continue;
                     }
-                },
-                None => continue,
+                };
+                let caps = match mccs_caps::parse_capabilities(caps) {
+                    Ok(caps) => caps,
+                    Err(e) => {
+                        log::warn!("failed to parse {sysname:?} capabilities: {e}");
+                        continue;
+                    }
+                };
+                let Some(mccs_version) = caps.mccs_version else {
+                    continue;
+                };
+
+                let mut db = mccs_db::Database::from_version(&mccs_version);
+                db.apply_capabilities(&caps);
+
+                match db.get(VCP_SET_BRIGHTNESS) {
+                    Some(v) => match v.access {
+                        Access::WriteOnly | Access::ReadWrite => {}
+                        Access::ReadOnly => {
+                            log::debug!("skipping display {sysname:?}, cannot update brightness");
+                            continue;
+                        }
+                    },
+                    None => continue,
+                }
+                output.push(Arc::new(Mutex::new(i2cdev)));
             }
-            output.push(Arc::new(Mutex::new(display)));
         }
-        output
+        Ok(output)
     })
     .into_future()
     .await
+    .unwrap_or_else(|e| Err(io::Error::other(e)))
 }
 
 #[tokio::main]
