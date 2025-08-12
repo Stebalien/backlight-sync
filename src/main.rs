@@ -10,7 +10,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{anyhow, Context};
 use ddc::Ddc;
 use ddc_i2c::{from_i2c_device, I2cDeviceDdc};
 use futures::stream::StreamExt;
