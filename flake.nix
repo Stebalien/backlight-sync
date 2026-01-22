@@ -19,25 +19,19 @@
         "aarch64-linux"
         "armv7l-linux"
       ];
-    in
-    {
-      packages = eachSystem (
-        system:
+      mkPackage =
+        pkgs:
         let
-          pkgs = nixpkgs.legacyPackages.${system};
           craneLib = crane.mkLib pkgs;
-          src =
-            let
-              unfilteredRoot = ./.;
-            in
-            pkgs.lib.fileset.toSource {
-              root = unfilteredRoot;
-              fileset = pkgs.lib.fileset.unions [
-                (craneLib.fileset.commonCargoSources unfilteredRoot)
-                ./Makefile
-                ./contrib
-              ];
-            };
+          unfilteredRoot = ./.;
+          src = pkgs.lib.fileset.toSource {
+            root = unfilteredRoot;
+            fileset = pkgs.lib.fileset.unions [
+              (craneLib.fileset.commonCargoSources unfilteredRoot)
+              ./Makefile
+              ./contrib
+            ];
+          };
           commonArgs = {
             inherit src;
             strictDeps = true;
@@ -48,26 +42,27 @@
             ];
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-          backlight-sync = craneLib.buildPackage (
-            commonArgs
-            // {
-              inherit cargoArtifacts;
-              installPhaseCommand = ''
-                make install install-udev-rules PREFIX="$out" LIBEXECDIR="$out/libexec" DESTDIR=""
-              '';
-            }
-          );
         in
-        {
-          inherit backlight-sync;
-          default = backlight-sync;
-        }
-      );
+        craneLib.buildPackage (
+          commonArgs
+          // {
+            inherit cargoArtifacts;
+            installPhaseCommand = ''
+              make install install-udev-rules PREFIX="$out" LIBEXECDIR="$out/libexec" DESTDIR=""
+            '';
+          }
+        );
+    in
+    {
+      packages = eachSystem (system: rec {
+        backlight-sync = mkPackage nixpkgs.legacyPackages.${system};
+        default = backlight-sync;
+      });
 
       formatter = eachSystem (system: nixpkgs.legacyPackages.${system}.nixfmt-tree);
 
       overlays.default = final: prev: {
-        inherit (self.packages.${final.system}) backlight-sync;
+        backlight-sync = mkPackage final;
       };
 
       nixosModules.default =
