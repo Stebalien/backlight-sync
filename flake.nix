@@ -83,7 +83,7 @@
         {
           options.services.backlight-sync = {
             enable = lib.mkEnableOption "enable the backlight-sync daemon";
-            package = lib.mkPackageOption pkgs "backlight-sync" { };
+            package = lib.mkPackageOption self.packages.${pkgs.system} "backlight-sync" { };
           };
           config = lib.mkIf cfg.enable {
             systemd = {
