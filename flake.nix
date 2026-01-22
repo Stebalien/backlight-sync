@@ -80,10 +80,17 @@
             package = lib.mkPackageOption (mkPackages pkgs) "backlight-sync" { };
           };
           config = lib.mkIf cfg.enable {
+            assertions = [
+              {
+                assertion = config.hardware.i2c.enable;
+                message = "The backlight sync daemon requires i2c.";
+              }
+            ];
             systemd = {
               packages = [ cfg.package ];
               services.backlight-syncd.wantedBy = [ "graphical.service" ];
             };
+            hardware.i2c.enable = true;
           };
         };
     };
