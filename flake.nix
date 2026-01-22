@@ -19,7 +19,7 @@
         "aarch64-linux"
         "armv7l-linux"
       ];
-      mkPackage =
+      mkPackages =
         pkgs:
         let
           craneLib = crane.mkLib pkgs;
@@ -43,26 +43,24 @@
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
         in
-        craneLib.buildPackage (
-          commonArgs
-          // {
-            inherit cargoArtifacts;
-            installPhaseCommand = ''
+          rec {
+            backlight-sync = craneLib.buildPackage (
+              commonArgs
+              // {
+                inherit cargoArtifacts;
+                installPhaseCommand = ''
               make install install-udev-rules PREFIX="$out" LIBEXECDIR="$out/libexec" DESTDIR=""
             '';
-          }
-        );
+              });
+            default = backlight-sync;
+          };
     in
     {
-      packages = eachSystem (system: rec {
-        backlight-sync = mkPackage nixpkgs.legacyPackages.${system};
-        default = backlight-sync;
-      });
-
+      packages = eachSystem (system: mkPackages nixpkgs.legacyPackages.${system});
       formatter = eachSystem (system: nixpkgs.legacyPackages.${system}.nixfmt-tree);
 
       overlays.default = final: prev: {
-        backlight-sync = mkPackage final;
+        inherit (mkPackages final) backlight-sync;
       };
 
       nixosModules.default =
@@ -78,7 +76,7 @@
         {
           options.services.backlight-sync = {
             enable = lib.mkEnableOption "enable the backlight-sync daemon";
-            package = lib.mkPackageOption self.packages.${pkgs.system} "backlight-sync" { };
+            package = lib.mkPackageOption (mkPackages pkgs) "backlight-sync" { };
           };
           config = lib.mkIf cfg.enable {
             systemd = {
