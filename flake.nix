@@ -3,31 +3,28 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    flake-parts = {
-      url = "github:hercules-ci/flake-parts";
-      inputs.nixpkgs-lib.follows = "nixpkgs";
-    };
     crane.url = "github:ipetkov/crane";
   };
 
-  outputs = inputs @ { crane, flake-parts, ... }: flake-parts.lib.mkFlake { inherit inputs; } (
-    { moduleWithSystem, ... }:
-    {
-      systems = [
+  outputs = { self, nixpkgs, crane }:
+    let
+      eachSystem = nixpkgs.lib.genAttrs [
         "i686-linux"
         "x86_64-linux"
         "aarch64-linux"
         "armv7l-linux"
       ];
-      imports = [ flake-parts.flakeModules.easyOverlay ];
-      perSystem = { config, system, lib, pkgs, ...}:
+    in
+    {
+      packages = eachSystem (system:
         let
+          pkgs = nixpkgs.legacyPackages.${system};
           craneLib = crane.mkLib pkgs;
           src = let
             unfilteredRoot = ./.;
-          in lib.fileset.toSource {
+          in pkgs.lib.fileset.toSource {
             root = unfilteredRoot;
-            fileset = lib.fileset.unions [
+            fileset = pkgs.lib.fileset.unions [
               (craneLib.fileset.commonCargoSources unfilteredRoot)
               ./Makefile
               ./contrib
@@ -37,7 +34,7 @@
             inherit src;
             strictDeps = true;
             buildInputs = [ pkgs.udev ];
-            nativeBuildInputs = [ pkgs.pkg-config  pkgs.m4 ];
+            nativeBuildInputs = [ pkgs.pkg-config pkgs.m4 ];
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
           backlight-sync = craneLib.buildPackage (commonArgs // {
@@ -46,25 +43,24 @@
               make install install-udev-rules PREFIX="$out" LIBEXECDIR="$out/libexec" DESTDIR=""
             '';
           });
-        in rec {
-          packages = {
-            inherit backlight-sync;
-            default = packages.backlight-sync;
-          };
-          overlayAttrs = {
-            inherit (config.packages) backlight-sync;
-          };
-        };
-      flake.nixosModules.default = moduleWithSystem (
-        perSystem@{pkgs, self', ... }:
-        nixos@{lib, config, ... }:
+        in
+        {
+          inherit backlight-sync;
+          default = backlight-sync;
+        });
+
+      overlays.default = final: prev: {
+        inherit (self.packages.${final.system}) backlight-sync;
+      };
+
+      nixosModules.default = { lib, config, pkgs, ... }:
         let
           cfg = config.services.backlight-sync;
         in
         {
           options.services.backlight-sync = {
             enable = lib.mkEnableOption "enable the backlight-sync daemon";
-            package = lib.mkPackageOption self'.packages "backlight-sync" { };
+            package = lib.mkPackageOption pkgs "backlight-sync" { };
           };
           config = lib.mkIf cfg.enable {
             systemd = {
@@ -72,6 +68,6 @@
               services.backlight-sync.wantedBy = [ "graphical.service" ];
             };
           };
-        });
-    });
-  }
+        };
+    };
+}
