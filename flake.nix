@@ -82,7 +82,7 @@
           config = lib.mkIf cfg.enable {
             systemd = {
               packages = [ cfg.package ];
-              services.backlight-sync.wantedBy = [ "graphical.service" ];
+              services.backlight-syncd.wantedBy = [ "graphical.service" ];
             };
           };
         };
