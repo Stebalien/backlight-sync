@@ -43,17 +43,18 @@
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
         in
-          rec {
-            backlight-sync = craneLib.buildPackage (
-              commonArgs
-              // {
-                inherit cargoArtifacts;
-                installPhaseCommand = ''
-              make install install-udev-rules PREFIX="$out" LIBEXECDIR="$out/libexec" DESTDIR=""
-            '';
-              });
-            default = backlight-sync;
-          };
+        rec {
+          backlight-sync = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              installPhaseCommand = ''
+                make install install-udev-rules PREFIX="$out" LIBEXECDIR="$out/libexec" DESTDIR=""
+              '';
+            }
+          );
+          default = backlight-sync;
+        };
     in
     {
       packages = eachSystem (system: mkPackages nixpkgs.legacyPackages.${system});
