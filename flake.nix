@@ -88,7 +88,7 @@
             ];
             systemd = {
               packages = [ cfg.package ];
-              services.backlight-syncd.wantedBy = [ "graphical.service" ];
+              services.backlight-syncd.wantedBy = [ "graphical.target" ];
             };
             hardware.i2c.enable = true;
           };
