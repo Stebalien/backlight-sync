@@ -6,7 +6,12 @@
     crane.url = "github:ipetkov/crane";
   };
 
-  outputs = { self, nixpkgs, crane }:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      crane,
+    }:
     let
       eachSystem = nixpkgs.lib.genAttrs [
         "i686-linux"
@@ -16,44 +21,62 @@
       ];
     in
     {
-      packages = eachSystem (system:
+      packages = eachSystem (
+        system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
           craneLib = crane.mkLib pkgs;
-          src = let
-            unfilteredRoot = ./.;
-          in pkgs.lib.fileset.toSource {
-            root = unfilteredRoot;
-            fileset = pkgs.lib.fileset.unions [
-              (craneLib.fileset.commonCargoSources unfilteredRoot)
-              ./Makefile
-              ./contrib
-            ];
-          };
+          src =
+            let
+              unfilteredRoot = ./.;
+            in
+            pkgs.lib.fileset.toSource {
+              root = unfilteredRoot;
+              fileset = pkgs.lib.fileset.unions [
+                (craneLib.fileset.commonCargoSources unfilteredRoot)
+                ./Makefile
+                ./contrib
+              ];
+            };
           commonArgs = {
             inherit src;
             strictDeps = true;
             buildInputs = [ pkgs.udev ];
-            nativeBuildInputs = [ pkgs.pkg-config pkgs.m4 ];
+            nativeBuildInputs = [
+              pkgs.pkg-config
+              pkgs.m4
+            ];
           };
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-          backlight-sync = craneLib.buildPackage (commonArgs // {
-            inherit cargoArtifacts;
-            installPhaseCommand = ''
-              make install install-udev-rules PREFIX="$out" LIBEXECDIR="$out/libexec" DESTDIR=""
-            '';
-          });
+          backlight-sync = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              installPhaseCommand = ''
+                make install install-udev-rules PREFIX="$out" LIBEXECDIR="$out/libexec" DESTDIR=""
+              '';
+            }
+          );
         in
         {
           inherit backlight-sync;
           default = backlight-sync;
-        });
+        }
+      );
+
+      formatter = eachSystem (system: nixpkgs.legacyPackages.${system}.nixfmt-tree);
 
       overlays.default = final: prev: {
         inherit (self.packages.${final.system}) backlight-sync;
       };
 
-      nixosModules.default = { lib, config, pkgs, ... }:
+      nixosModules.default =
+        {
+          lib,
+          config,
+          pkgs,
+          ...
+        }:
         let
           cfg = config.services.backlight-sync;
         in
