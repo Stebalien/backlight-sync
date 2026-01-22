@@ -141,7 +141,7 @@ async fn enumerate() -> anyhow::Result<Vec<Arc<Mutex<I2cDeviceDdc>>>> {
             let caps = match get_capabilities(&mut i2cdev) {
                 Ok(caps) => caps,
                 Err(e) => {
-                    log::warn!("failed to get capabilities for {sysname:?}: {e}");
+                    log::warn!("failed to get capabilities for {sysname:?}: {e:?}");
                     continue;
                 }
             };
