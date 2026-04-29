@@ -17,4 +17,4 @@ log = "0.4.27"
 mccs-caps = "0.1.3"
 mccs-db = { version = "0.1.3", default-features = false }
 tokio = { version = "1.44.1", default-features = false, features = ["rt", "macros", "process", "time", "rt-multi-thread"] }
-tokio-udev = "0.9.1"
+tokio-udev = "0.10.0"
