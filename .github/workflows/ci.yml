@@ -21,5 +21,6 @@ jobs:
     - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
       with:
         toolchain: stable
+    - run: sudo apt-get update && sudo apt-get install -y libudev-dev
     - run: cargo build --verbose
     - run: cargo test --verbose
