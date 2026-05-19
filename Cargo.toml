@@ -9,7 +9,7 @@ license = "GPL-3.0"
 
 [dependencies]
 anyhow = "1.0.98"
-ddc = "0.2.2"
+ddc = "0.3.0"
 ddc-i2c = { version = "0.2.2", features = ["with-linux"] }
 env_logger = "0.11.7"
 futures = "0.3.31"
