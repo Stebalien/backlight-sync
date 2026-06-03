@@ -13,7 +13,7 @@ ddc = "0.2.2"
 ddc-i2c = { version = "0.2.2", features = ["with-linux"] }
 env_logger = "0.11.7"
 futures = "0.3.31"
-log = "0.4.27"
+log = "0.4.30"
 mccs-caps = "0.1.3"
 mccs-db = { version = "0.1.3", default-features = false }
 tokio = { version = "1.52.3", default-features = false, features = ["rt", "macros", "process", "time", "rt-multi-thread"] }
